@@ -1,56 +1,48 @@
-package get_urls_from_html
-
-//"errors"
+package main
 
 import (
-	"io"
+	"fmt"
 	"net/url"
 	"strings"
 
 	"golang.org/x/net/html"
 )
 
-func getURLsFromHTML(rawBaseURL, htmlBody string) ([]string, error) {
-	// return all url links found in the html body
-	urls := []string{}
+func getURLsFromHTML(htmlBody, rawBaseURL string) ([]string, error) {
 	baseURL, err := url.Parse(rawBaseURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("couldn't parse base URL: %v", err)
 	}
 
-	//search for url links in html body
-	tokenizer := html.NewTokenizer(strings.NewReader(htmlBody))
-	for {
-		tokenType := tokenizer.Next()
-		if tokenType == html.ErrorToken {
-			if tokenizer.Err() == io.EOF {
-				break
-			}
-			return nil, tokenizer.Err()
-		}
-		if tokenType == html.StartTagToken {
-			token := tokenizer.Token()
-			if token.Data == "a" {
-				for _, attr := range token.Attr {
-					if attr.Key == "href" {
-						//parse the url
-						linkURL, err := url.Parse(attr.Val)
-						if err != nil {
-							return nil, err
-						}
-						//check if the url is relative or absolute
-						if linkURL.IsAbs() {
-							urls = append(urls, linkURL.String())
-						} else {
-							//make the url absolute
-							linkURL = baseURL.ResolveReference(linkURL)
-							urls = append(urls, linkURL.String())
-						}
+	htmlReader := strings.NewReader(htmlBody)
+	doc, err := html.Parse(htmlReader)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't parse HTML: %v", err)
+	}
+
+	var urls []string
+	var traverseNodes func(*html.Node)
+	traverseNodes = func(node *html.Node) {
+		if node.Type == html.ElementNode && node.Data == "a" {
+			for _, anchor := range node.Attr {
+				if anchor.Key == "href" {
+					href, err := url.Parse(anchor.Val)
+					if err != nil {
+						fmt.Printf("couldn't parse href '%v': %v\n", anchor.Val, err)
+						continue
 					}
+
+					resolvedURL := baseURL.ResolveReference(href)
+					urls = append(urls, resolvedURL.String())
 				}
 			}
 		}
+
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			traverseNodes(child)
+		}
 	}
+	traverseNodes(doc)
 
 	return urls, nil
 }
